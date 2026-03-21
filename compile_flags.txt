@@ -1,0 +1,6 @@
+-I./include
+-Werror
+-Wall
+-Wextra
+-pedantic
+-D_WIN64
