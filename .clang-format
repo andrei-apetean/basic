@@ -1,0 +1,8 @@
+BasedOnStyle: Google
+DerivePointerAlignment: false
+PointerAlignment: Left
+ReferenceAlignment: Left
+AlignConsecutiveDeclarations: true
+IndentWidth: 4
+UseTab: Never
+ColumnLimit: 96
