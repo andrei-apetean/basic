@@ -7,22 +7,35 @@
 #define unused(x) (void)(x)
 #define container_of(ptr, type, member) ((type*)((char*)(ptr) - offsetof(type, member)))
 
-struct platform_window;
-
-struct game {
+struct game_itf {
     uint32_t (*init)(void);
     void     (*update)(void);
     void     (*terminate)(void);
     uint32_t running;
 };
-struct platform {
-    double (*now)(void);
-    void   (*sleep)(uint64_t ms);
-    void   (*poll_events)(void);
+
+enum WINDOW_API {
+    WINDOW_API_WIN32,
+    WINDOW_API_LINUX,
+    WINDOW_API_COUNT,
 };
 
-extern struct game* create_game(void);
+/* TODO: this header is shared with the game, for now,
+ * exposing this entire interface to the game 
+ * might not be a good idea. 
+ */
 
-uint32_t run_game(const struct game* g, const struct platform* p);
+struct platform_itf {
+    double (*const now)(void);
+    void   (*const sleep)(uint32_t ms);
+    void   (*const poll_events)(void);
+    const enum WINDOW_API window_api;
+};
+
+extern const struct platform_itf platform;
+
+extern struct game_itf* create_game(void);
+
+uint32_t run_game(const struct game_itf* g);
 
 #endif
