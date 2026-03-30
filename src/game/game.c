@@ -1,8 +1,5 @@
-
 #include <basic/basic.h>
-#include <basic/basic_native.h>
 #include <stdio.h>
-
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -52,4 +49,3 @@ void game_terminate(void){
     printf("game terminate\n");
     /* shutdown vulkan */
 }
-
