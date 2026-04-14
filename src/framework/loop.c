@@ -40,8 +40,9 @@ void loop_on_event(struct os_event* ev)
     switch (ev->kind) {
         case OS_EVENT_KEY_PRESS:
             for (uint32_t i = 0; i < g_keymap->bind_count; i++) {
-                if (g_keymap->binds[i].key_code == ev->key.code) {
-                    g_keymap->binds[i].on_event();
+                uint32_t code = g_keymap->binds[i].key_code;
+                if (code == ev->key.code || code == KEY_ANY) {
+                    g_keymap->binds[i].on_event(ev->key.code);
                 }
             }
             break;
