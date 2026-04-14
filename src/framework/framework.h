@@ -33,8 +33,46 @@ struct os_event {
     };
 };
 
+enum window_backend {
+    WINDOW_BACKEND_WIN32 = 0,
+    WINDOW_BACKEND_WAYLAND,
+    WINDOW_BACKEND_X11,
+    WINDOW_BACKEND_COUNT,
+};
+
+typedef struct HWND__* HWND;
+typedef struct HINSTANCE__* HINSTANCE;
+
+struct os_window_win32 {
+    HWND      hwnd;
+    HINSTANCE hinstance;
+};
+
+struct wl_surface;
+struct wl_display;
+
+struct os_window_wl {
+    struct wl_surface* surface;
+    struct wl_display* display;
+};
+
+struct os_window_x11 {
+    void* window;
+    void* display;
+};
+
+struct os_window {
+    enum window_backend backend;
+    union {
+        struct os_window_win32 win32;
+        struct os_window_wl    wl;
+        struct os_window_x11   x11;
+    };
+};
+
 struct loop_config {
-    const struct game* game;
+    const struct game*      game;
+    const struct os_window* window;
 };
 
 uint32_t loop_init(const struct loop_config* config);

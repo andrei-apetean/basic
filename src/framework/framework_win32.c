@@ -6,12 +6,15 @@
  * logger
  * get window config from game
  * app icon
+ * frame rate config
+ * monitor info
  *
  ************************************************************/
-
 #include "framework.h"
 
 #include <Windows.h>
+
+
 
 #define BASIC_WINDOW_CLASS "basic_window"
 
@@ -21,18 +24,19 @@ static double           win32_get_time(void);
 static uint32_t         win32_translate_keycode(uint32_t code);
 
 static uint32_t           g_exit_requested = 0;
-static HWND               g_hwnd = 0;
-static HINSTANCE          g_hinstance = 0;
+static struct os_window   g_window = {0};
 static LARGE_INTEGER      g_clock_frequency = {0};
 static LARGE_INTEGER      g_clock_start = {0};
 static struct loop_config g_loop_config = {0};
 
 int APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE hprev, LPSTR args, int cmdshow)
 {
-    g_hinstance = hinstance;
     (void)hprev;
     (void)args;
     (void)cmdshow;
+
+    g_window.backend = WINDOW_BACKEND_WIN32;
+    g_window.win32.hinstance = hinstance;
 
     QueryPerformanceFrequency(&g_clock_frequency);
     QueryPerformanceCounter(&g_clock_start);
@@ -47,6 +51,7 @@ int APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE hprev, LPSTR args, int cmdsh
         printf("[err] game loading failed\n");
         return -1;
     };
+    g_loop_config.window = &g_window;
 
     err = loop_init(&g_loop_config);
     if (err) {
@@ -54,7 +59,7 @@ int APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE hprev, LPSTR args, int cmdsh
         return err;
     }
 
-    ShowWindow(g_hwnd, SW_SHOW);
+    ShowWindow(g_window.win32.hwnd, SW_SHOW);
 
     double last_time = win32_get_time();
     const double target_frame_time = 1.0 / 60.0;
@@ -63,7 +68,7 @@ int APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE hprev, LPSTR args, int cmdsh
         double frame_start = win32_get_time();
 
         MSG msg;
-        while (PeekMessage(&msg, g_hwnd, 0, 0, PM_REMOVE)) {
+        while (PeekMessage(&msg, g_window.win32.hwnd, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
@@ -92,14 +97,14 @@ uint32_t win32_open_window(void)
 {
     WNDCLASSEX wc = {
         .lpfnWndProc = win_proc,
-        .hInstance = g_hinstance,
+        .hInstance = g_window.win32.hinstance,
         .lpszClassName = BASIC_WINDOW_CLASS,
         .cbSize = sizeof(WNDCLASSEX),
     };
     RegisterClassEx(&wc);
 
     DWORD win_style = WS_THICKFRAME | WS_SYSMENU;
-    g_hwnd = CreateWindowEx(0,           // Optional window styles.
+    g_window.win32.hwnd = CreateWindowEx(0,           // Optional window styles.
             BASIC_WINDOW_CLASS,   // Window class
             "basic window",       // Window text
             win_style,            // Window style
@@ -109,10 +114,10 @@ uint32_t win32_open_window(void)
             CW_USEDEFAULT,
             NULL,                 // Parent window
             NULL,                 // Menu
-            g_hinstance,          // Instance handle
+            g_window.win32.hinstance,// Instance handle
             NULL                  // Additional application data
             );
-    if (!(g_hwnd)){
+    if (!(g_window.win32.hwnd)){
         printf("Error, failed to create game instance!\n");
         return 1;
     }

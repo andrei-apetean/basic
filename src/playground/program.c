@@ -42,7 +42,6 @@ const struct game* load_game(void)
     return &g_game_instance;
 }
 
-
 uint32_t game_init(void)
 {
     printf("game initialized!\n");

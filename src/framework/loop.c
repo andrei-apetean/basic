@@ -1,23 +1,17 @@
 #include <stdio.h>
 #include "framework.h"
 
-struct pointer {
-    uint32_t x, y;
-    uint32_t dx, dy;
-    uint32_t buttons[BUTTON_CODE_COUNT];
-};
-
-const struct game* g_game;
-const struct key_map* g_keymap;
-uint32_t g_keyboard[KEY_CODE_COUNT];
-
+static const struct game*      g_ref_game;
+static const struct key_map*   g_ref_keymap;
+static const struct os_window* g_ref_window;
 
 uint32_t loop_init(const struct loop_config* config)
 {
     uint32_t err = 0;
-    g_game = config->game;
-    g_keymap = config->game->config->keymap;
-    err = g_game->init();
+    g_ref_game = config->game;
+    g_ref_keymap = config->game->config->keymap;
+    g_ref_window = config->window;
+    err = g_ref_game->init();
     if (err) {
         printf("[err] game initialization failed!\n");
     };
@@ -26,23 +20,23 @@ uint32_t loop_init(const struct loop_config* config)
 
 void loop_update(void)
 {
-    g_game->update();
+    g_ref_game->update();
 }
 
 void loop_terminate(void)
 {
-    g_game->terminate();
+    g_ref_game->terminate();
 }
 
 void loop_on_event(struct os_event* ev)
 {
-    if (!g_keymap) return;
+    if (!g_ref_keymap) return;
     switch (ev->kind) {
         case OS_EVENT_KEY_PRESS:
-            for (uint32_t i = 0; i < g_keymap->bind_count; i++) {
-                uint32_t code = g_keymap->binds[i].key_code;
+            for (uint32_t i = 0; i < g_ref_keymap->bind_count; i++) {
+                uint32_t code = g_ref_keymap->binds[i].key_code;
                 if (code == ev->key.code || code == KEY_ANY) {
-                    g_keymap->binds[i].on_event(ev->key.code);
+                    g_ref_keymap->binds[i].on_event(ev->key.code);
                 }
             }
             break;
