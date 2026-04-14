@@ -1,74 +1,60 @@
 #ifndef BASIC_H
 #define BASIC_H
 
-#include <stddef.h>
 #include <stdint.h>
 
-#define unused(x) (void)(x)
-#define container_of(ptr, type, member) ((type*)((char*)(ptr) - offsetof(type, member)))
+#define count_of(x) sizeof((x))/sizeof((x)[0])
 
-/*************************************************************************
- *********************** native
- ************************************************************************/
-
-enum WINDOW_API {
-    WINDOW_API_WIN32,
-    WINDOW_API_WAYLAND,
-    WINDOW_API_COUNT,
+enum key_state {
+    KEY_STATE_UP = 0,
+    KEY_STATE_DOWN,
+    KEY_STATE_COUNT,
 };
 
-typedef struct HWND__* HWND;
-typedef struct HINSTANCE__* HINSTANCE;
-struct win32_state {
-    HWND hwnd;
-    HINSTANCE hinstance;
+enum key_code {
+    KEY_UNKNOWN = 0,
+    KEY_A,
+    KEY_B,
+    KEY_C,
+    KEY_D,
+    KEY_E,
+    KEY_ESCAPE,
+    KEY_CODE_COUNT,
 };
 
-void get_win32_state(struct win32_state* s);
-
-/* WAYLAND */
-struct wl_display;
-struct wl_surface;
-
-struct wayland_state {
-    struct wl_display* display;
-    struct wl_surface* surface;
+enum button_code {
+    BUTTON_LEFT,
+    BUTTON_RIGHT,
+    BUTTON_MIDDLE,
+    BUTTON_CODE_COUNT,
 };
 
-void get_wayland_state(struct wayland_state);
-
-/* Other platforms... if any... */
-
-/*************************************************************************
- *********************** game
- ************************************************************************/
-
-struct game_itf {
-    uint32_t (*init)(void);
-    void     (*update)(void);
-    void     (*terminate)(void);
-    uint32_t running;
+struct key_bind {
+    uint32_t key_code;
+    uint32_t key_state;
+    void (*on_event)(void);
 };
 
-extern struct game_itf* create_game(void);
-
-/*************************************************************************
- *********************** platform
- ************************************************************************/
-
-/* TODO: this header is shared with the game, for now,
- * exposing this entire interface to the game 
- * might not be a good idea. Maybe move to basic_internal.h?
- */
-struct platform_itf {
-    double (*const now)(void);
-    void   (*const sleep)(uint32_t ms);
-    void   (*const poll_events)(void);
-    const enum WINDOW_API window_api;
+struct key_map {
+    struct key_bind* binds;
+    uint32_t bind_count;
 };
 
-extern const struct platform_itf platform;
+struct game_config {
+    struct key_map* keymap;
+};
 
-uint32_t run_game(const struct game_itf* g);
+struct game {
+    uint32_t (*const init)(void);
+    void     (*const update)(void);
+    void     (*const terminate)(void);
+    uint32_t exit_requested;
 
-#endif
+    const struct game_config* config;
+};
+
+
+extern const struct game* load_game(void);
+
+
+#endif /* BASIC_H */
