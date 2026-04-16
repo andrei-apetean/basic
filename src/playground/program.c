@@ -24,6 +24,10 @@ static struct key_map g_game_keymap = {
 
 static struct game_config g_config = {
     .keymap = &g_game_keymap,
+    .window_width = 1280,
+    .window_height = 720,
+    .window_mode = OS_WINDOW_MODE_WINDOWED,
+    .window_title = "basic program"
 };
 
 uint32_t game_init(void);

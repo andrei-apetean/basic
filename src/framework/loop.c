@@ -11,6 +11,12 @@ uint32_t loop_init(const struct loop_config* config)
     g_ref_game = config->game;
     g_ref_keymap = config->game->config->keymap;
     g_ref_window = config->window;
+
+    err = render_device_init_vulkan(g_ref_window);
+    if (err) {
+        printf("[err] vulkan initialization failed!\n");
+    };
+
     err = g_ref_game->init();
     if (err) {
         printf("[err] game initialization failed!\n");
@@ -26,6 +32,7 @@ void loop_update(void)
 void loop_terminate(void)
 {
     g_ref_game->terminate();
+    render_device_terminate_vulkan();
 }
 
 void loop_on_event(struct os_event* ev)

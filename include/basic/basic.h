@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define count_of(x) sizeof((x))/sizeof((x)[0])
+#define clamp(x, min, max) ((x) < (min) ? (min) : (x) > (max) ? (max) : (x))
 
 enum key_state {
     KEY_STATE_UP = 0,
@@ -110,8 +111,17 @@ struct key_map {
     uint32_t bind_count;
 };
 
+#define OS_WINDOW_MODE_WINDOWED 0
+#define OS_WINDOW_MODE_MAXIMIZED 1
+#define OS_WINDOW_MODE_FULLSCREEN 2
+
+
 struct game_config {
     struct key_map* keymap;
+    uint32_t        window_width;
+    uint32_t        window_height;
+    uint32_t        window_mode;
+    const char*     window_title;
 };
 
 struct game {

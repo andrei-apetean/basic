@@ -17,7 +17,8 @@
 #define BASIC_WINDOW_CLASS "basic_window"
 
 static LRESULT CALLBACK win_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param);
-static uint32_t         win32_open_window(void);
+static uint32_t         win32_open_window(uint32_t width, uint32_t height,
+        uint32_t mode, const char* title);
 static double           win32_get_time(void);
 static uint32_t         win32_translate_keycode(uint32_t code);
 
@@ -39,16 +40,18 @@ int APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE hprev, LPSTR args, int cmdsh
     QueryPerformanceFrequency(&g_clock_frequency);
     QueryPerformanceCounter(&g_clock_start);
     uint32_t err = 0;
-    err = win32_open_window();
+    const struct game* game = load_game();
+    if (!game) {
+        printf("[err] game loading failed\n");
+        return -1;
+    };
+    err = win32_open_window(game->config->window_width, game->config->window_height,
+            game->config->window_mode,game->config->window_title);
     if (err) {
         printf("[err] window creation failed\n");
         return err;
     }
-    g_loop_config.game = load_game();
-    if (!g_loop_config.game) {
-        printf("[err] game loading failed\n");
-        return -1;
-    };
+    g_loop_config.game = game;
     g_loop_config.window = &g_window;
 
     err = loop_init(&g_loop_config);
@@ -90,35 +93,76 @@ int APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE hprev, LPSTR args, int cmdsh
     loop_terminate();
     return err;
 }
-
-uint32_t win32_open_window(void)
+uint32_t win32_open_window(uint32_t width, uint32_t height,
+        uint32_t mode, const char *title)
 {
     WNDCLASSEX wc = {
-        .lpfnWndProc = win_proc,
-        .hInstance = g_window.win32.hinstance,
+        .cbSize        = sizeof(WNDCLASSEX),
+        .lpfnWndProc   = win_proc,
+        .hInstance     = g_window.win32.hinstance,
         .lpszClassName = BASIC_WINDOW_CLASS,
-        .cbSize = sizeof(WNDCLASSEX),
     };
-    RegisterClassEx(&wc);
 
-    DWORD win_style = WS_THICKFRAME | WS_SYSMENU;
-    g_window.win32.hwnd = CreateWindowEx(0,           // Optional window styles.
-            BASIC_WINDOW_CLASS,   // Window class
-            "basic window",       // Window text
-            win_style,            // Window style
-            CW_USEDEFAULT,        // Size and position
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
-            NULL,                 // Parent window
-            NULL,                 // Menu
-            g_window.win32.hinstance,// Instance handle
-            NULL                  // Additional application data
-            );
-    if (!(g_window.win32.hwnd)){
-        printf("Error, failed to create game instance!\n");
+    if (!RegisterClassEx(&wc)) {
+        printf("win32: failed to register window class (%lu)\n", GetLastError());
         return 1;
     }
+
+    DWORD win_style = WS_OVERLAPPEDWINDOW;
+    DWORD ex_style  = 0;
+    int x = CW_USEDEFAULT, y = CW_USEDEFAULT;
+    int w = (int)width,    h = (int)height;
+    int show = SW_SHOW;
+
+    if (mode == OS_WINDOW_MODE_FULLSCREEN) {
+        HMONITOR    mon  = MonitorFromPoint((POINT){0, 0}, MONITOR_DEFAULTTOPRIMARY);
+        MONITORINFO info = { .cbSize = sizeof(info) };
+        GetMonitorInfoA(mon, &info);
+
+        win_style = WS_POPUP;
+        ex_style  = WS_EX_TOPMOST;
+        x = info.rcMonitor.left;
+        y = info.rcMonitor.top;
+        w = info.rcMonitor.right  - info.rcMonitor.left;
+        h = info.rcMonitor.bottom - info.rcMonitor.top;
+    } else {
+        RECT rect = { 0, 0, (LONG)width, (LONG)height };
+        AdjustWindowRectEx(&rect, win_style, FALSE, ex_style);
+        w = rect.right  - rect.left;
+        h = rect.bottom - rect.top;
+
+        if (mode == OS_WINDOW_MODE_MAXIMIZED)
+            show = SW_MAXIMIZE;
+    }
+
+    g_window.win32.hwnd = CreateWindowExA(
+        ex_style,
+        BASIC_WINDOW_CLASS,
+        title,
+        win_style,
+        x, y, w, h,
+        NULL, NULL,
+        g_window.win32.hinstance,
+        NULL
+    );
+
+    if (!g_window.win32.hwnd) {
+        printf("win32: failed to create window (%lu)\n", GetLastError());
+        return 1;
+    }
+
+    /* read back actual client size — may differ from requested,
+       especially in maximized mode where the taskbar affects dimensions */
+    RECT client;
+    GetClientRect(g_window.win32.hwnd, &client);
+    g_window.width  = (uint32_t)(client.right  - client.left);
+    g_window.height = (uint32_t)(client.bottom - client.top);
+
+    ShowWindow(g_window.win32.hwnd, show);
+    UpdateWindow(g_window.win32.hwnd);
+
+    printf("win32: window created (%ux%u) mode=%u\n",
+                   g_window.width, g_window.height, mode);
     return 0;
 }
 
