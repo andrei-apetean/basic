@@ -14,8 +14,6 @@
 
 #include <Windows.h>
 
-
-
 #define BASIC_WINDOW_CLASS "basic_window"
 
 static LRESULT CALLBACK win_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param);

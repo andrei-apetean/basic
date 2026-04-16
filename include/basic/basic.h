@@ -104,6 +104,7 @@ struct key_bind {
     void (*on_event)(uint32_t key_code);
 };
 
+/*todo: should be action map? */
 struct key_map {
     struct key_bind* binds;
     uint32_t bind_count;
