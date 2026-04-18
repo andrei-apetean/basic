@@ -89,6 +89,8 @@ struct os_window {
  ******************************************************************/
 
 uint32_t render_device_init_vulkan(const struct os_window* window);
+void     render_device_begin_drawing_vulkan(void);
+void     render_device_end_drawing_vulkan(void);
 void     render_device_terminate_vulkan(void);
 
 /*******************************************************************

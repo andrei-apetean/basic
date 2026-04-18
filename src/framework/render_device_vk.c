@@ -4,8 +4,12 @@
 #include "framework.h"
 
 #define check(err, msg) do{if (err){puts((msg)); return err;}} while (0);
-#define checkv(err, msg, ...) do{if (err){printf((msg), __VA_ARGS__); return err;}} while (0);
+#define checkv(err, msg, ...) do{if (err){    \
+    printf((msg), __VA_ARGS__); return err;}} \
+    while (0);
+
 #define MAX_SWAPCHAIN_IMAGES 8
+#define FRAMES_IN_FLIGHT 3
 
 /* forward declarations - bad idea?*/
 
@@ -57,6 +61,13 @@ struct vulkan_image {
     VkImageAspectFlags aspect_mask;
 };
 
+struct frame_data {
+    VkCommandPool   pool;
+    VkCommandBuffer buffer;
+    VkSemaphore     img_ready_semaphore;
+    VkFence         render_fence;
+};
+
 struct vulkan_state {
     VkInstance               instance;
     VkAllocationCallbacks*   alloc;
@@ -70,7 +81,12 @@ struct vulkan_state {
     VkSurfaceFormatKHR       swapchain_surface_fmt;
     VkExtent2D               swapchain_extent;
     uint32_t                 swapchain_image_count;
+    uint32_t                 current_frame;
+    uint32_t                 image_index;
+    VkCommandPool            upload_pool;
+    struct frame_data        frame_data[FRAMES_IN_FLIGHT];
     struct vulkan_image      swapchain_images[MAX_SWAPCHAIN_IMAGES];
+    VkSemaphore              render_finished[MAX_SWAPCHAIN_IMAGES];
     VkDebugUtilsMessengerEXT messenger;
 };
 
@@ -82,12 +98,15 @@ debug_utils_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
                      const VkDebugUtilsMessengerCallbackDataEXT* data,
                      void* user_data);
 
-static int32_t  vulkan_get_family_queue(VkPhysicalDevice dev, int32_t* idx, VkSurfaceKHR surf);
 static uint32_t vulkan_create_swapchain(uint32_t width, uint32_t height);
 static void     vulkan_destroy_swapchain(void);
 
-static VkSurfaceFormatKHR vulkan_find_surface_fmt(VkPhysicalDevice dev, VkSurfaceKHR surf);
-static VkPresentModeKHR   vulkan_find_present_mode(VkPhysicalDevice d, VkSurfaceKHR s);
+static void vulkan_transition_image(VkCommandBuffer buffer,
+        struct vulkan_image* img, VkImageLayout new);
+
+static int32_t vulkan_find_gfx_queue(VkPhysicalDevice d, int32_t* idx, VkSurfaceKHR s);
+static VkSurfaceFormatKHR vulkan_find_surface_fmt(VkPhysicalDevice d, VkSurfaceKHR s);
+static VkPresentModeKHR   vulkan_find_present_mod(VkPhysicalDevice d, VkSurfaceKHR s);
 
 uint32_t render_device_init_vulkan(const struct os_window* window)
 {
@@ -171,7 +190,8 @@ uint32_t render_device_init_vulkan(const struct os_window* window)
         /* tbd: separate into swapchain?*/
         switch (window->backend) {
             case WINDOW_BACKEND_WIN32:
-                PFN_vkCreateWin32SurfaceKHR create_surface= (PFN_vkCreateWin32SurfaceKHR )
+                PFN_vkCreateWin32SurfaceKHR create_surface = 
+                    (PFN_vkCreateWin32SurfaceKHR)
                     vkGetInstanceProcAddr(g_vk.instance, "vkCreateWin32SurfaceKHR");
                 if (!create_surface) {
                     return VK_ERROR_UNKNOWN;
@@ -194,29 +214,30 @@ uint32_t render_device_init_vulkan(const struct os_window* window)
     }
 
     { /* physical device selection */
-        uint32_t devcount = 0;
-        err = vkEnumeratePhysicalDevices(g_vk.instance, &devcount, NULL);
+        uint32_t dev_count = 0;
+        err = vkEnumeratePhysicalDevices(g_vk.instance, &dev_count, NULL);
         if (err) return err;
 
-        VkPhysicalDevice devices[devcount];
-        err = vkEnumeratePhysicalDevices(g_vk.instance, &devcount, devices);
+        VkPhysicalDevice devices[dev_count];
+        err = vkEnumeratePhysicalDevices(g_vk.instance, &dev_count, devices);
         if (err) return err;
 
         VkPhysicalDevice discrete_device = 0;
         VkPhysicalDevice integrated_device = 0;
 
-        int32_t gfx_family = 0;
+        int32_t gfx_idx = 0;
 
-        for (uint32_t i = 0; i < devcount; i++) {
+        for (uint32_t i = 0; i < dev_count; i++) {
             VkPhysicalDeviceProperties props = {0};
             vkGetPhysicalDeviceProperties(devices[i], &props);
             printf("[inf][vk] evaluating device '%s'\n", props.deviceName);
 
-            int suitable = vulkan_get_family_queue(devices[i], &gfx_family, g_vk.surface);
-            if  ((props.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) && suitable)
+            int suitable = vulkan_find_gfx_queue(devices[i], &gfx_idx, g_vk.surface);
+            VkPhysicalDeviceType dev_type = props.deviceType;
+            if ((dev_type == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) && suitable)
                 discrete_device = devices[i];
 
-            if ((props.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) && suitable)
+            if ((dev_type == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU) && suitable)
                 integrated_device = devices[i];
 
             const char* types[] = { "other", "integrated_gpu", "discrete_gpu",
@@ -231,12 +252,13 @@ uint32_t render_device_init_vulkan(const struct os_window* window)
                     props.vendorID,
                     types[props.deviceType],
                     suitable ? "true" : "false",
-                    gfx_family);
+                    gfx_idx);
         }
 
         g_vk.physical_device = discrete_device ? discrete_device
             : integrated_device ? integrated_device
             : VK_NULL_HANDLE;
+
         err = g_vk.physical_device == VK_NULL_HANDLE;
         check(err, "[inf][vk] failed to find a suitable device\n");
 
@@ -245,7 +267,7 @@ uint32_t render_device_init_vulkan(const struct os_window* window)
         printf("[inf][vk] selected device: '%s'\n", props.deviceName);
 
         int32_t queue_idx = 0;
-        vulkan_get_family_queue(g_vk.physical_device, &queue_idx, g_vk.surface);
+        vulkan_find_gfx_queue(g_vk.physical_device, &queue_idx, g_vk.surface);
         g_vk.gfx_family = queue_idx;
     }
 
@@ -279,15 +301,15 @@ uint32_t render_device_init_vulkan(const struct os_window* window)
             .pNext = &features_12,
         };
 
-        uint32_t device_extension_count = 0;
-        const char* device_extensions[VULKAN_DEVICE_EXT_COUNT] = { 0 };
-        device_extensions[device_extension_count++] =  VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+        uint32_t dev_extension_count = 0;
+        const char* dev_extensions[VULKAN_DEVICE_EXT_COUNT] = { 0 };
+        dev_extensions[dev_extension_count++] =  VK_KHR_SWAPCHAIN_EXTENSION_NAME;
         VkDeviceCreateInfo device_ci = {
             .sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
             .queueCreateInfoCount = count_of(queue_cis),
             .pQueueCreateInfos = queue_cis,
-            .enabledExtensionCount = device_extension_count,
-            .ppEnabledExtensionNames = device_extensions,
+            .enabledExtensionCount = dev_extension_count,
+            .ppEnabledExtensionNames = dev_extensions,
             .pNext = &features_13,
         };
 
@@ -298,8 +320,61 @@ uint32_t render_device_init_vulkan(const struct os_window* window)
         vkGetDeviceQueue(g_vk.device, g_vk.gfx_family, 0, &g_vk.gfx_queue);
         printf("[inf][vk] queues obtained\n");
     }
+
     {
         vulkan_create_swapchain(window->width, window->height);
+    }
+
+    { /* command objects */
+        VkCommandPoolCreateInfo ci = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+            .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+            .queueFamilyIndex = g_vk.gfx_family,
+        };
+
+        err = vkCreateCommandPool(g_vk.device, &ci, g_vk.alloc, &g_vk.upload_pool);
+        check(err, "[err][vk] failed to create upload pool\n");
+
+        VkFenceCreateInfo fence_ci = {
+            .sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+            .flags = VK_FENCE_CREATE_SIGNALED_BIT,
+        };
+
+        VkSemaphoreCreateInfo semaphore_ci = {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+        };
+
+        for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; i++) {
+            err = vkCreateCommandPool(g_vk.device, &ci, g_vk.alloc,
+                    &g_vk.frame_data[i].pool);
+            checkv(err, "[err][vk] failed to create command pool (%d)\n", i);
+
+            VkCommandBufferAllocateInfo alloc_info = {
+                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                .commandPool = g_vk.frame_data[i].pool,
+                .commandBufferCount = 1,
+                .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            };
+            err = vkAllocateCommandBuffers(g_vk.device, &alloc_info,
+                    &g_vk.frame_data[i].buffer);
+            checkv(err, "[err][vk] failed to allocate command buffer (%d)\n", i);
+
+            err = vkCreateFence(g_vk.device, &fence_ci, g_vk.alloc,
+                    &g_vk.frame_data[i].render_fence);
+            checkv(err, "[vk] failed to create fence (%d)\n", i);
+
+            err = vkCreateSemaphore(g_vk.device, &semaphore_ci, g_vk.alloc,
+                    &g_vk.frame_data[i].img_ready_semaphore);
+            checkv(err, "[vk] failed to create swapchain semaphore(%d)\n", i);
+        }
+
+        for (uint32_t i = 0; i < g_vk.swapchain_image_count; i++) {
+            err = vkCreateSemaphore(g_vk.device, &semaphore_ci, g_vk.alloc,
+                    &g_vk.render_finished[i]);
+            checkv(err, "[vk] failed to create render semaphore(%d)\n", i);
+        }
+
+        printf("[inf][vk] command objects created (%d)\n", g_vk.swapchain_image_count);
     }
 
     printf("[inf][vk] vulkan initialization successful\n");
@@ -309,6 +384,22 @@ uint32_t render_device_init_vulkan(const struct os_window* window)
 
 void render_device_terminate_vulkan(void)
 {
+    vkDeviceWaitIdle(g_vk.device);
+    for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; i++) {
+        struct frame_data f = g_vk.frame_data[i];
+        vkDestroyFence(g_vk.device, f.render_fence, g_vk.alloc);
+        vkDestroySemaphore(g_vk.device, f.img_ready_semaphore, g_vk.alloc);
+
+        vkFreeCommandBuffers(g_vk.device, f.pool, 1, &f.buffer);
+        vkDestroyCommandPool(g_vk.device, f.pool, g_vk.alloc);
+    }
+
+    for (uint32_t i = 0; i < g_vk.swapchain_image_count; i++) {
+        vkDestroySemaphore(g_vk.device, g_vk.render_finished[i], g_vk.alloc);
+    }
+
+    vkDestroyCommandPool(g_vk.device, g_vk.upload_pool, g_vk.alloc);
+
     vulkan_destroy_swapchain();
 
     if (g_vk.device) vkDestroyDevice(g_vk.device, g_vk.alloc);
@@ -329,15 +420,103 @@ void render_device_terminate_vulkan(void)
     printf("[inf][vk] vulkan shutdown successful\n");
 }
 
-static int32_t vulkan_get_family_queue(VkPhysicalDevice dev, int32_t* idx, VkSurfaceKHR surf)
+void render_device_begin_drawing_vulkan(void)
+{
+    struct frame_data *frame = &g_vk.frame_data[g_vk.current_frame];
+    VkCommandBuffer buffer = frame->buffer;
+
+    vkWaitForFences(g_vk.device, 1, &frame->render_fence, VK_TRUE, UINT64_MAX);
+    vkResetFences(g_vk.device, 1, &frame->render_fence);
+
+    vkAcquireNextImageKHR(g_vk.device, g_vk.swapchain, UINT64_MAX,
+            frame->img_ready_semaphore, VK_NULL_HANDLE, &g_vk.image_index);
+
+    struct vulkan_image *img = &g_vk.swapchain_images[g_vk.image_index];
+
+    vkResetCommandBuffer(buffer, 0);
+    VkCommandBufferBeginInfo begin = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+        .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
+    };
+    vkBeginCommandBuffer(buffer, &begin);
+    vulkan_transition_image(buffer, img, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    VkRenderingAttachmentInfo attachment = {
+        .sType       = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+        .imageView   = img->view,
+        .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .loadOp      = VK_ATTACHMENT_LOAD_OP_CLEAR,
+        .storeOp     = VK_ATTACHMENT_STORE_OP_STORE,
+        .clearValue  = { .color = { .float32 = {1.0f, 0.0f, 0.0f, 1.0f} } },
+    };
+    VkRenderingInfo rendering = {
+        .sType                = VK_STRUCTURE_TYPE_RENDERING_INFO,
+        .renderArea           = { .offset = {0,0}, .extent = g_vk.swapchain_extent },
+        .layerCount           = 1,
+        .colorAttachmentCount = 1,
+        .pColorAttachments    = &attachment,
+    };
+    vkCmdBeginRendering(buffer, &rendering);
+}
+
+void render_device_end_drawing_vulkan(void)
+{
+    struct frame_data *frame = &g_vk.frame_data[g_vk.current_frame];
+    VkCommandBuffer buffer = frame->buffer;
+    struct vulkan_image *img = &g_vk.swapchain_images[g_vk.image_index];
+
+    vkCmdEndRendering(buffer);
+    vulkan_transition_image(buffer, img, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    vkEndCommandBuffer(buffer);
+
+    VkSemaphoreSubmitInfo wait_info = {
+        .sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+        .semaphore = frame->img_ready_semaphore,
+        .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+    };
+    VkSemaphoreSubmitInfo signal_info = {
+        .sType     = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO,
+        .semaphore = g_vk.render_finished[g_vk.image_index],
+        .stageMask = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT,
+    };
+    VkCommandBufferSubmitInfo cmd_info = {
+        .sType         = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO,
+        .commandBuffer = buffer,
+    };
+    VkSubmitInfo2 submit = {
+        .sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2,
+        .waitSemaphoreInfoCount   = 1,
+        .pWaitSemaphoreInfos      = &wait_info,
+        .signalSemaphoreInfoCount = 1,
+        .pSignalSemaphoreInfos    = &signal_info,
+        .commandBufferInfoCount   = 1,
+        .pCommandBufferInfos      = &cmd_info,
+    };
+    vkQueueSubmit2(g_vk.gfx_queue, 1, &submit, frame->render_fence);
+
+    VkPresentInfoKHR present = {
+        .sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores    = &g_vk.render_finished[g_vk.image_index],
+        .swapchainCount     = 1,
+        .pSwapchains        = &g_vk.swapchain,
+        .pImageIndices      = &g_vk.image_index,
+    };
+    vkQueuePresentKHR(g_vk.gfx_queue, &present);
+
+    g_vk.current_frame = (g_vk.current_frame + 1) % FRAMES_IN_FLIGHT;
+
+}
+
+static int32_t vulkan_find_gfx_queue(VkPhysicalDevice d, int32_t* idx, VkSurfaceKHR s)
 {
     *idx = -1;
 
     uint32_t qfc = 0;
-    vkGetPhysicalDeviceQueueFamilyProperties(dev, &qfc, NULL);
+    vkGetPhysicalDeviceQueueFamilyProperties(d, &qfc, NULL);
 
     VkQueueFamilyProperties qprops[qfc];
-    vkGetPhysicalDeviceQueueFamilyProperties(dev, &qfc, qprops);
+    vkGetPhysicalDeviceQueueFamilyProperties(d, &qfc, qprops);
 
     for (uint32_t j = 0; j < qfc; j++) {
         if (qprops[j].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
@@ -348,11 +527,11 @@ static int32_t vulkan_get_family_queue(VkPhysicalDevice dev, int32_t* idx, VkSur
     if (*idx < 0) return 0;
 
     VkBool32 present = 0;
-    vkGetPhysicalDeviceSurfaceSupportKHR(dev, *idx, surf, &present);
+    vkGetPhysicalDeviceSurfaceSupportKHR(d, *idx, s, &present);
     return present;
 }
 
-static VkPresentModeKHR vulkan_find_present_mode(VkPhysicalDevice d, VkSurfaceKHR s)
+static VkPresentModeKHR vulkan_find_present_mod(VkPhysicalDevice d, VkSurfaceKHR s)
 {
     uint32_t count = 0;
     vkGetPhysicalDeviceSurfacePresentModesKHR(d, s, &count, NULL);
@@ -369,7 +548,7 @@ static VkPresentModeKHR vulkan_find_present_mode(VkPhysicalDevice d, VkSurfaceKH
     return VK_PRESENT_MODE_FIFO_KHR;
 }
 
-static VkSurfaceFormatKHR vulkan_find_surface_fmt(VkPhysicalDevice dev, VkSurfaceKHR surf)
+static VkSurfaceFormatKHR vulkan_find_surface_fmt(VkPhysicalDevice d, VkSurfaceKHR s)
 {
     VkResult err = VK_SUCCESS;
     const VkSurfaceFormatKHR err_fmt = {
@@ -386,11 +565,11 @@ static VkSurfaceFormatKHR vulkan_find_surface_fmt(VkPhysicalDevice dev, VkSurfac
 
     const VkColorSpaceKHR cspace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
     uint32_t fmtcount = 0;
-    err = vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surf, &fmtcount, NULL);
+    err = vkGetPhysicalDeviceSurfaceFormatsKHR(d, s, &fmtcount, NULL);
     if (err) return err_fmt;
 
     VkSurfaceFormatKHR fmts[fmtcount];
-    err = vkGetPhysicalDeviceSurfaceFormatsKHR(dev, surf, &fmtcount, fmts);
+    err = vkGetPhysicalDeviceSurfaceFormatsKHR(d, s, &fmtcount, fmts);
     if (err) return err_fmt;
 
     for (uint32_t i = 0; i < fmtcount; i++) {
@@ -415,10 +594,12 @@ static uint32_t vulkan_create_swapchain(uint32_t width, uint32_t height)
     err = surface_fmt->colorSpace == VK_COLOR_SPACE_MAX_ENUM_KHR;
     check(err, "[err][vk] failed to find surface format");
 
-    VkPresentModeKHR pmode = vulkan_find_present_mode(g_vk.physical_device, g_vk.surface);
+    VkPresentModeKHR pmode = vulkan_find_present_mod(
+            g_vk.physical_device, g_vk.surface);
 
     VkSurfaceCapabilitiesKHR caps = {0};
-    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g_vk.physical_device, g_vk.surface, &caps);
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(g_vk.physical_device,
+            g_vk.surface, &caps);
 
     g_vk.swapchain_extent = caps.currentExtent;
     if (g_vk.swapchain_extent.width == UINT32_MAX) {
@@ -464,7 +645,7 @@ static uint32_t vulkan_create_swapchain(uint32_t width, uint32_t height)
             &g_vk.swapchain_image_count, NULL);
 
     check(err, "[err][vk] failed to retrieve swapchain images\n");
-    VkImage sc_imgs[g_vk.swapchain_image_count];
+    VkImage sc_imgs[MAX_SWAPCHAIN_IMAGES] = { 0 };
 
     err = vkGetSwapchainImagesKHR(g_vk.device, g_vk.swapchain, 
             &g_vk.swapchain_image_count, sc_imgs);
@@ -500,7 +681,8 @@ static uint32_t vulkan_create_swapchain(uint32_t width, uint32_t height)
             },
         };
 
-        err = vkCreateImageView(g_vk.device, &ci, g_vk.alloc, &g_vk.swapchain_images[i].view);
+        err = vkCreateImageView(g_vk.device, &ci, g_vk.alloc,
+                &g_vk.swapchain_images[i].view);
         checkv(err, "[err][vk] failed to create swapchain image view (%d)\n", i);
     }
     return err;
@@ -514,6 +696,40 @@ static void vulkan_destroy_swapchain(void)
         }
     }
     vkDestroySwapchainKHR(g_vk.device, g_vk.swapchain, g_vk.alloc);
+}
+
+static void vulkan_transition_image(VkCommandBuffer buffer,
+        struct vulkan_image* img, VkImageLayout new)
+{
+    if (img->layout == new) return;
+    VkImageSubresourceRange sub_image = {
+        .aspectMask = img->aspect_mask,
+        .baseMipLevel = 0,
+        .levelCount = VK_REMAINING_MIP_LEVELS,
+        .baseArrayLayer = 0,
+        .layerCount = VK_REMAINING_ARRAY_LAYERS,
+    };
+
+    VkImageMemoryBarrier2 barrier = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        .dstAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT
+            | VK_ACCESS_2_MEMORY_READ_BIT,
+        .oldLayout = img->layout,
+        .newLayout = new,
+        .subresourceRange = sub_image,
+        .image = img->handle,
+    };
+
+    VkDependencyInfo  dep_info = {
+        .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+        .imageMemoryBarrierCount = 1,
+        .pImageMemoryBarriers = &barrier,
+    };
+    vkCmdPipelineBarrier2(buffer, &dep_info);
+    img->layout = new;
 }
 
 static VkBool32

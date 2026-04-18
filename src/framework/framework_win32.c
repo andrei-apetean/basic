@@ -13,8 +13,11 @@
 #include "framework.h"
 
 #include <Windows.h>
+#include <windowsx.h>
+#include <dwmapi.h>
 
 #define BASIC_WINDOW_CLASS "basic_window"
+#define TITLE_BAR_HEIGHT 30
 
 static LRESULT CALLBACK win_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param);
 static uint32_t         win32_open_window(uint32_t width, uint32_t height,
@@ -42,13 +45,13 @@ int APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE hprev, LPSTR args, int cmdsh
     uint32_t err = 0;
     const struct game* game = load_game();
     if (!game) {
-        printf("[err] game loading failed\n");
+        printf("[err][win32] game loading failed\n");
         return -1;
     };
     err = win32_open_window(game->config->window_width, game->config->window_height,
             game->config->window_mode,game->config->window_title);
     if (err) {
-        printf("[err] window creation failed\n");
+        printf("[err][win32] window creation failed\n");
         return err;
     }
     g_loop_config.game = game;
@@ -56,11 +59,9 @@ int APIENTRY WinMain(HINSTANCE hinstance, HINSTANCE hprev, LPSTR args, int cmdsh
 
     err = loop_init(&g_loop_config);
     if (err) {
-        printf("[err] loop initialization failed\n");
+        printf("[err][win32] loop initialization failed\n");
         return err;
     }
-
-    ShowWindow(g_window.win32.hwnd, SW_SHOW);
 
     double last_time = win32_get_time();
     const double target_frame_time = 1.0 / 60.0;
@@ -101,10 +102,11 @@ uint32_t win32_open_window(uint32_t width, uint32_t height,
         .lpfnWndProc   = win_proc,
         .hInstance     = g_window.win32.hinstance,
         .lpszClassName = BASIC_WINDOW_CLASS,
+        .hbrBackground = NULL, /* removes ugly white window borders */
     };
 
     if (!RegisterClassEx(&wc)) {
-        printf("win32: failed to register window class (%lu)\n", GetLastError());
+        printf("[inf][win32]: failed to register window class (%lu)\n", GetLastError());
         return 1;
     }
 
@@ -119,7 +121,7 @@ uint32_t win32_open_window(uint32_t width, uint32_t height,
         MONITORINFO info = { .cbSize = sizeof(info) };
         GetMonitorInfoA(mon, &info);
 
-        win_style = WS_POPUP;
+        win_style = WS_OVERLAPPEDWINDOW;
         ex_style  = WS_EX_TOPMOST;
         x = info.rcMonitor.left;
         y = info.rcMonitor.top;
@@ -147,7 +149,7 @@ uint32_t win32_open_window(uint32_t width, uint32_t height,
     );
 
     if (!g_window.win32.hwnd) {
-        printf("win32: failed to create window (%lu)\n", GetLastError());
+        printf("[err][win32]: failed to create window (%lu)\n", GetLastError());
         return 1;
     }
 
@@ -158,12 +160,67 @@ uint32_t win32_open_window(uint32_t width, uint32_t height,
     g_window.width  = (uint32_t)(client.right  - client.left);
     g_window.height = (uint32_t)(client.bottom - client.top);
 
+    SetWindowPos(g_window.win32.hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+    /* MARGINS margins = {-1, -1, -1, -1};
+     DwmExtendFrameIntoClientArea(g_window.win32.hwnd, &margins);
+    */
     ShowWindow(g_window.win32.hwnd, show);
     UpdateWindow(g_window.win32.hwnd);
 
-    printf("win32: window created (%ux%u) mode=%u\n",
+    printf("[inf][win32]: window created (%ux%u) mode=%u\n",
                    g_window.width, g_window.height, mode);
     return 0;
+}
+
+LRESULT CALLBACK win_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    struct os_event ev = {0};
+    switch (msg) {
+        case WM_DESTROY:
+        case WM_CLOSE:
+            g_exit_requested = 1;
+            break;
+        case WM_NCCALCSIZE:
+            if (!wparam) break;
+            return 0;
+        case WM_NCHITTEST:
+            {
+                POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
+                ScreenToClient(hwnd, &pt);
+                RECT rc;
+                GetClientRect(hwnd, &rc);
+                int border = GetSystemMetrics(SM_CXSIZEFRAME)
+                    + GetSystemMetrics(SM_CXPADDEDBORDER);
+
+                if (pt.y < border) {
+                    if (pt.x < border)      return HTTOPLEFT;
+                    if (pt.x > rc.right - border) return HTTOPRIGHT;
+                    return HTTOP;
+                }
+                if (pt.y > rc.bottom - border) {
+                    if (pt.x < border)      return HTBOTTOMLEFT;
+                    if (pt.x > rc.right - border) return HTBOTTOMRIGHT;
+                    return HTBOTTOM;
+                }
+                if (pt.x < border)          return HTLEFT;
+                if (pt.x > rc.right - border) return HTRIGHT;
+                if (pt.y < border + TITLE_BAR_HEIGHT) return HTCAPTION;
+                return HTCLIENT;
+            }
+        case WM_ERASEBKGND:
+             return 1;
+        case WM_KEYUP:
+        case WM_KEYDOWN:
+            ev.kind = msg == WM_KEYDOWN ? OS_EVENT_KEY_PRESS : OS_EVENT_KEY_RELEASE;
+            ev.key.code = win32_translate_keycode(wparam);
+            loop_on_event(&ev);
+
+        default:
+            break;
+    }
+    return DefWindowProc(hwnd, msg, wparam, lparam);
 }
 
 double win32_get_time(void)
@@ -172,26 +229,6 @@ double win32_get_time(void)
     QueryPerformanceCounter(&now);
     return (double)(now.QuadPart - g_clock_start.QuadPart) 
         / (double)g_clock_frequency.QuadPart;
-}
-
-LRESULT CALLBACK win_proc(HWND hwnd, UINT msg, WPARAM w_param, LPARAM l_param)
-{
-    struct os_event ev = {0};
-    switch (msg) {
-        case WM_DESTROY:
-        case WM_CLOSE:
-            g_exit_requested = 1;
-            break;
-        case WM_KEYUP:
-        case WM_KEYDOWN:
-            ev.kind = msg == WM_KEYDOWN ? OS_EVENT_KEY_PRESS : OS_EVENT_KEY_RELEASE;
-            ev.key.code = win32_translate_keycode(w_param);
-            loop_on_event(&ev);
-
-        default:
-            break;
-    }
-    return DefWindowProc(hwnd, msg, w_param, l_param);
 }
 
 uint32_t win32_translate_keycode(uint32_t code)

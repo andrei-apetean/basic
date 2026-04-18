@@ -27,6 +27,9 @@ uint32_t loop_init(const struct loop_config* config)
 void loop_update(void)
 {
     g_ref_game->update();
+    render_device_begin_drawing_vulkan();
+
+    render_device_end_drawing_vulkan();
 }
 
 void loop_terminate(void)
