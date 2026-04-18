@@ -153,19 +153,14 @@ uint32_t win32_open_window(uint32_t width, uint32_t height,
         return 1;
     }
 
-    /* read back actual client size — may differ from requested,
-       especially in maximized mode where the taskbar affects dimensions */
+    SetWindowPos(g_window.win32.hwnd, NULL, 0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
     RECT client;
     GetClientRect(g_window.win32.hwnd, &client);
     g_window.width  = (uint32_t)(client.right  - client.left);
     g_window.height = (uint32_t)(client.bottom - client.top);
 
-    SetWindowPos(g_window.win32.hwnd, NULL, 0, 0, 0, 0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-
-    /* MARGINS margins = {-1, -1, -1, -1};
-     DwmExtendFrameIntoClientArea(g_window.win32.hwnd, &margins);
-    */
     ShowWindow(g_window.win32.hwnd, show);
     UpdateWindow(g_window.win32.hwnd);
 
@@ -185,16 +180,19 @@ LRESULT CALLBACK win_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
         case WM_NCCALCSIZE:
             if (!wparam) break;
             return 0;
-        case WM_NCHITTEST:
-            {
+        case WM_NCHITTEST: {
                 POINT pt = { GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam) };
-                ScreenToClient(hwnd, &pt);
+                RECT wr;
+                GetWindowRect(hwnd, &wr);
+                // manually offset from window top-left instead of using ScreenToClient
+                pt.x -= wr.left;
+                pt.y -= wr.top;
                 RECT rc;
                 GetClientRect(hwnd, &rc);
                 int border = GetSystemMetrics(SM_CXSIZEFRAME)
                     + GetSystemMetrics(SM_CXPADDEDBORDER);
 
-                if (pt.y < border) {
+               if (pt.y < border) {
                     if (pt.x < border)      return HTTOPLEFT;
                     if (pt.x > rc.right - border) return HTTOPRIGHT;
                     return HTTOP;
@@ -217,6 +215,27 @@ LRESULT CALLBACK win_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             ev.key.code = win32_translate_keycode(wparam);
             loop_on_event(&ev);
 
+        case WM_SIZE: {
+                if (wparam == SIZE_MINIMIZED) break;
+                uint32_t width  = LOWORD(lparam);
+                uint32_t height = HIWORD(lparam);
+                if (width == 0 || height == 0) break;
+                g_window.width  = width;
+                g_window.height = height;
+                ev.kind          = OS_EVENT_WINDOW_SIZE;
+                ev.window.width  = width;
+                ev.window.height = height;
+                loop_on_event(&ev);
+                break;
+            }
+case WM_SETCURSOR: {
+    WORD ht = LOWORD(lparam);
+    if (ht == HTCLIENT) {
+        SetCursor(LoadCursor(NULL, IDC_ARROW));
+        return TRUE;  /* returning TRUE prevents DefWindowProc from changing it */
+    }
+    break;
+}
         default:
             break;
     }

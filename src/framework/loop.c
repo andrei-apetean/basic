@@ -55,6 +55,8 @@ void loop_on_event(struct os_event* ev)
         case OS_EVENT_POINTER_SCROLL:
         case OS_EVENT_POINTER_BUTTON:
         case OS_EVENT_WINDOW_SIZE:
+            render_device_on_resize(ev->window.width, ev->window.height);
+            break;
         case OS_EVENT_WINDOW_CLOSE:
         case OS_EVENT_KIND_COUNT:
             break;
