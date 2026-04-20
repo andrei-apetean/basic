@@ -214,7 +214,7 @@ LRESULT CALLBACK win_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
             ev.kind = msg == WM_KEYDOWN ? OS_EVENT_KEY_PRESS : OS_EVENT_KEY_RELEASE;
             ev.key.code = win32_translate_keycode(wparam);
             loop_on_event(&ev);
-
+            break;
         case WM_SIZE: {
                 if (wparam == SIZE_MINIMIZED) break;
                 uint32_t width  = LOWORD(lparam);
@@ -228,14 +228,14 @@ LRESULT CALLBACK win_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
                 loop_on_event(&ev);
                 break;
             }
-case WM_SETCURSOR: {
-    WORD ht = LOWORD(lparam);
-    if (ht == HTCLIENT) {
-        SetCursor(LoadCursor(NULL, IDC_ARROW));
-        return TRUE;  /* returning TRUE prevents DefWindowProc from changing it */
-    }
-    break;
-}
+        case WM_SETCURSOR: {
+              WORD ht = LOWORD(lparam);
+              if (ht == HTCLIENT) {
+                  SetCursor(LoadCursor(NULL, IDC_ARROW));
+                  return TRUE;  /* returning TRUE prevents DefWindowProc from changing it */
+              }
+              break;
+          }
         default:
             break;
     }
