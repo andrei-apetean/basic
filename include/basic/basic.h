@@ -6,135 +6,167 @@
 #define count_of(x) sizeof((x))/sizeof((x)[0])
 #define clamp(x, min, max) ((x) < (min) ? (min) : (x) > (max) ? (max) : (x))
 
-enum key_state {
-    KEY_STATE_UP = 0,
-    KEY_STATE_DOWN,
-    KEY_STATE_COUNT,
+#define KEY_ANY                0
+#define KEY_A                  1
+#define KEY_B                  2
+#define KEY_C                  3
+#define KEY_D                  4
+#define KEY_E                  5
+#define KEY_F                  6
+#define KEY_G                  7
+#define KEY_H                  8
+#define KEY_I                  9
+#define KEY_J                  10
+#define KEY_K                  11
+#define KEY_L                  12
+#define KEY_M                  13
+#define KEY_N                  14
+#define KEY_O                  15
+#define KEY_P                  16
+#define KEY_Q                  17
+#define KEY_R                  18
+#define KEY_S                  19
+#define KEY_T                  20
+#define KEY_U                  21
+#define KEY_V                  22
+#define KEY_W                  23
+#define KEY_X                  24
+#define KEY_Y                  25
+#define KEY_Z                  26
+#define KEY_1                  27
+#define KEY_2                  28
+#define KEY_3                  29
+#define KEY_4                  30
+#define KEY_5                  31
+#define KEY_6                  32
+#define KEY_7                  33
+#define KEY_8                  34
+#define KEY_9                  35
+#define KEY_0                  36
+#define KEY_ENTER              37
+#define KEY_ESCAPE             38
+#define KEY_BACKSPACE          39
+#define KEY_TAB                40
+#define KEY_SPACE              41
+#define KEY_MINUS              42
+#define KEY_EQUAL              43
+#define KEY_LBRACE             44
+#define KEY_RBRACE             45
+#define KEY_BACKSLASH          46
+#define KEY_SEMICOLON          47
+#define KEY_APOSTROPHE         48
+#define KEY_GRAVEACCENT        49
+#define KEY_COMMA              50
+#define KEY_PERIOD             51
+#define KEY_SLASH              52
+#define KEY_F1                 53
+#define KEY_F2                 54
+#define KEY_F3                 55
+#define KEY_F4                 56
+#define KEY_F5                 57
+#define KEY_F6                 58
+#define KEY_F7                 59
+#define KEY_F8                 60
+#define KEY_F9                 61
+#define KEY_F10                62
+#define KEY_F11                63
+#define KEY_F12                64
+#define KEY_RIGHT              65
+#define KEY_LEFT               66
+#define KEY_DOWN               67
+#define KEY_UP                 68
+#define KEY_CAPSLOCK           69
+#define KEY_LCONTROL           70
+#define KEY_LALT               71
+#define KEY_LSHIFT             72
+#define KEY_LMETA              73
+#define KEY_RSHIFT             74
+
+#define BUTTON_ANY             0
+#define BUTTON_LEFT            1
+#define BUTTON_RIGHT           2
+#define BUTTON_MIDDLE          3
+
+#define WINDOW_MODE_INVALID    0
+#define WINDOW_MODE_WINDOWED   1
+#define WINDOW_MODE_MAXIMIZED  2
+#define WINDOW_MODE_FULLSCREEN 3
+
+#define WINDOW_BACKEND_INVALID 0
+#define WINDOW_BACKEND_WIN32   1
+#define WINDOW_BACKEND_WAYLAND 2
+#define WINDOW_BACKEND_XCB     3
+
+#define APP_EVENT_INVALID      0
+#define APP_EVENT_KEY_UP       1
+#define APP_EVENT_KEY_DOWN     2
+#define APP_EVENT_MOUSE_UP     3
+#define APP_EVENT_MOUSE_DOWN   4
+#define APP_EVENT_MOUSE_MOVE   5
+#define APP_EVENT_MOUSE_SCROLL 6
+#define APP_EVENT_WINDOW_SIZE  7
+#define APP_EVENT_CLOSE        8
+
+struct app_event {
+    uint32_t kind;
+    union {
+        struct { uint32_t w, h;              } resize;
+        struct { uint32_t code;              } key;
+        struct { int32_t  x, y;              } mouse_move;
+        struct { int32_t  x, y; int32_t btn; } mouse_button;
+    };
 };
 
-enum key_code {
-    KEY_UNKNOWN = 0,
-    KEY_A,
-    KEY_B,
-    KEY_C,
-    KEY_D,
-    KEY_E,
-    KEY_F,
-    KEY_G,
-    KEY_H,
-    KEY_I,
-    KEY_J,
-    KEY_K,
-    KEY_L,
-    KEY_M,
-    KEY_N,
-    KEY_O,
-    KEY_P,
-    KEY_Q,
-    KEY_R,
-    KEY_S,
-    KEY_T,
-    KEY_U,
-    KEY_V,
-    KEY_W,
-    KEY_X,
-    KEY_Y,
-    KEY_Z,
-    KEY_1,
-    KEY_2,
-    KEY_3,
-    KEY_4,
-    KEY_5,
-    KEY_6,
-    KEY_7,
-    KEY_8,
-    KEY_9,
-    KEY_0,
-    KEY_ENTER,
-    KEY_ESCAPE,
-    KEY_BACKSPACE,
-    KEY_TAB,
-    KEY_SPACE,
-    KEY_MINUS,
-    KEY_EQUAL,
-    KEY_LBRACE,
-    KEY_RBRACE,
-    KEY_BACKSLASH,
-    KEY_SEMICOLON,
-    KEY_APOSTROPHE,
-    KEY_GRAVEACCENT,
-    KEY_COMMA,
-    KEY_PERIOD,
-    KEY_SLASH,
-    KEY_F1,
-    KEY_F2,
-    KEY_F3,
-    KEY_F4,
-    KEY_F5,
-    KEY_F6,
-    KEY_F7,
-    KEY_F8,
-    KEY_F9,
-    KEY_F10,
-    KEY_F11,
-    KEY_F12,
-    KEY_RIGHT,
-    KEY_LEFT,
-    KEY_DOWN,
-    KEY_UP,
-    KEY_CAPSLOCK,
-    KEY_LCONTROL,
-    KEY_LALT,
-    KEY_LSHIFT,
-    KEY_LMETA,
-    KEY_RSHIFT,
-    KEY_ANY,
-    KEY_CODE_COUNT,
+typedef struct HWND__* HWND;
+typedef struct HINSTANCE__* HINSTANCE;
+
+struct window_win32 {
+    HWND      hwnd;
+    HINSTANCE hinstance;
 };
 
-enum button_code {
-    BUTTON_LEFT,
-    BUTTON_RIGHT,
-    BUTTON_MIDDLE,
-    BUTTON_CODE_COUNT,
+struct wl_surface;
+struct wl_display;
+
+struct window_wl {
+    struct wl_surface* surface;
+    struct wl_display* display;
 };
 
-struct key_bind {
-    uint32_t key_code;
-    uint32_t key_state;
-    void (*on_event)(uint32_t key_code);
+struct window_xcb {
+    void* window;
+    void* display;
 };
 
-/*todo: should be action map? */
-struct key_map {
-    struct key_bind* binds;
-    uint32_t bind_count;
+struct window {
+    union {
+        struct window_win32 win32;
+        struct window_wl    wl;
+        struct window_xcb   xcb;
+    };
+    uint32_t            width;
+    uint32_t            height;
+    uint32_t            backend;
+    uint32_t            mode;
+    const char*         title;
 };
 
-#define OS_WINDOW_MODE_WINDOWED 0
-#define OS_WINDOW_MODE_MAXIMIZED 1
-#define OS_WINDOW_MODE_FULLSCREEN 2
+typedef uint32_t (*const app_fn_init)(void);
+typedef void     (*const app_fn_update)(void);
+typedef void     (*const app_fn_terminate)(void);
+typedef void     (*const app_fn_event)(struct app_event*);
 
-
-struct game_config {
-    struct key_map* keymap;
-    uint32_t        window_width;
-    uint32_t        window_height;
-    uint32_t        window_mode;
-    const char*     window_title;
+struct app_desc {
+    struct window*         window;
+    const app_fn_init      fn_init;
+    const app_fn_update    fn_update;
+    const app_fn_terminate fn_terminate;
+    const app_fn_event     fn_event;
+    uint32_t               target_fps;
 };
 
-struct game {
-    uint32_t (*const init)(void);
-    void     (*const update)(void);
-    void     (*const terminate)(void);
-    uint32_t exit_requested;
+extern const struct app_desc* load_app(void);
 
-    const struct game_config* config;
-};
-
-
-extern const struct game* load_game(void);
-
+void quit_app(void);
 
 #endif /* BASIC_H */

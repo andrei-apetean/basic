@@ -1,6 +1,6 @@
 #include <basic/basic.h>
 #include <stdio.h>
-
+/*
 static void on_escape_pressed(uint32_t);
 static void on_any_key_pressed(uint32_t);
 
@@ -21,47 +21,51 @@ static struct key_map g_game_keymap = {
     .binds = g_keybinds,
     .bind_count = count_of(g_keybinds),
 };
+*/
 
-static struct game_config g_config = {
-    .keymap = &g_game_keymap,
-    .window_width = 1280,
-    .window_height = 720,
-    .window_mode = OS_WINDOW_MODE_WINDOWED,
-    .window_title = "basic program"
+static struct window g_window;
+
+uint32_t app_init(void);
+void     app_update(void);
+void     app_terminate(void);
+void     app_event(struct app_event*);
+
+static struct app_desc g_my_app = {
+    .window = &g_window,
+    .fn_init = app_init,
+    .fn_update = app_update,
+    .fn_event = app_event,
+    .fn_terminate = app_terminate,
 };
 
-uint32_t game_init(void);
-void     game_update(void);
-void     game_terminate(void);
-
-static struct game g_game_instance = {
-    .init = game_init,
-    .update = game_update,
-    .terminate = game_terminate,
-    .config = &g_config
-};
-
-const struct game* load_game(void)
+const struct app_desc* load_app(void)
 {
-    return &g_game_instance;
+    return &g_my_app;
 }
 
-uint32_t game_init(void)
+uint32_t app_init(void)
 {
     printf("game initialized!\n");
     return 0;
 }
 
-void game_update(void)
+void app_update(void)
 {
 
 }
 
-void game_terminate(void)
-{
-
+void app_event(struct app_event* event) {
+    (void)event;
+    static uint32_t counter = 0;
+    printf("game event: %d!\n", counter++);
 }
 
+void app_terminate(void)
+{
+
+    printf("game terminate!\n");
+}
+/*
 void on_escape_pressed(uint32_t code)
 {
     (void)code;
@@ -73,7 +77,6 @@ static void on_any_key_pressed(uint32_t code)
 {
 
     switch (code) {
-        case KEY_UNKNOWN: printf("KEY_UNKNOWN\n"); break;
         case KEY_A: printf("KEY_A\n"); break;
         case KEY_B: printf("KEY_B\n"); break;
         case KEY_C: printf("KEY_C\n"); break;
@@ -149,9 +152,7 @@ static void on_any_key_pressed(uint32_t code)
         case KEY_LMETA: printf("KEY_LMETA\n"); break;
         case KEY_RSHIFT: printf("KEY_RSHIFT\n"); break;
         case KEY_ANY: printf("KEY_ANY\n"); break;
-        case KEY_CODE_COUNT: printf("KEY_CODE_COUNT"); break;
     }
 
 }
-
-#include "../framework/unity.c"
+*/
