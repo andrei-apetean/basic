@@ -3,5 +3,7 @@
 -Werror
 -Wall
 -Wextra
+-std=c11
 -pedantic
 -D_WIN64
+-D_CRT_SECURE_NO_WARNINGS
